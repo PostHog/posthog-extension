@@ -91,20 +91,6 @@ The extension uses Chart.js to create interactive visualizations for your PostHo
 - Breakdown data appears as pie charts
 - All charts respect VS Code's theme settings
 
-## Publishing the Extension
-
-To publish this extension to the VS Code Marketplace:
-
-1. Install the VSCE tool: `npm install -g @vscode/vsce`
-2. Update the `package.json` with publisher info and other metadata
-3. Create a Visual Studio Marketplace publisher account
-4. Generate a Personal Access Token in Azure DevOps
-5. Login with VSCE: `vsce login <publisher>`
-6. Package the extension: `vsce package`
-7. Publish the extension: `vsce publish`
-
-For more detailed instructions, visit [Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
-
 ## License
 
 This extension is licensed under the MIT License.

@@ -1,45 +1,18 @@
 {
-  "name": "posthog-vscode",
-  "displayName": "PostHog",
-  "description": "Access PostHog insights, projects, and features directly from VSCode",
-  "version": "1.0.0",
-  "publisher": "posthog",
-  "author": {
-    "name": "PostHog"
-  },
-  "engines": {
-    "vscode": "^1.74.0"
-  },
-  "categories": [
-    "Other",
-    "Visualization",
-    "Debuggers"
-  ],
-  "keywords": [
-    "posthog",
-    "analytics",
-    "product analytics",
-    "feature flags",
-    "insights",
-    "session recordings",
-    "data visualization"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/posthog/posthog-vscode.git"
-  },
-  "icon": "resources/posthog-icon.png",
-  "galleryBanner": {
-    "color": "#f0f0f0",
-    "theme": "light"
-  },
   "activationEvents": [
     "onView:posthogProjects",
     "onView:posthogInsights",
     "onView:posthogRecordings",
     "onCommand:posthog.setApiKey"
   ],
-  "main": "./dist/extension.js",
+  "author": {
+    "name": "PostHog"
+  },
+  "categories": [
+    "Other",
+    "Visualization",
+    "Debuggers"
+  ],
   "contributes": {
     "commands": [
       {
@@ -83,14 +56,20 @@
         "title": "PostHog: Debug API Connection"
       }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "posthog-explorer",
-          "title": "PostHog",
-          "icon": "resources/posthog-icon.svg"
+    "configuration": {
+      "properties": {
+        "posthog.apiHost": {
+          "default": "https://us.posthog.com",
+          "description": "PostHog API host (US or EU)",
+          "type": "string"
+        },
+        "posthog.apiKey": {
+          "default": "",
+          "description": "Your personal PostHog API key",
+          "type": "string"
         }
-      ]
+      },
+      "title": "PostHog"
     },
     "views": {
       "posthog-explorer": [
@@ -108,36 +87,21 @@
         }
       ]
     },
-    "configuration": {
-      "title": "PostHog",
-      "properties": {
-        "posthog.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Your personal PostHog API key"
-        },
-        "posthog.apiHost": {
-          "type": "string",
-          "default": "https://us.posthog.com",
-          "description": "PostHog API host (US or EU)"
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "icon": "resources/posthog-icon.svg",
+          "id": "posthog-explorer",
+          "title": "PostHog"
         }
-      }
+      ]
     }
   },
-  "scripts": {
-    "vscode:prepublish": "pnpm run package",
-    "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
-    "watch": "npm-run-all -p watch:*",
-    "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
-    "check-types": "tsc --noEmit",
-    "lint": "eslint src",
-    "test": "vscode-test"
+  "dependencies": {
+    "axios": "^1.8.3",
+    "dayjs": "^1.11.13"
   },
+  "description": "Access PostHog insights, projects, and features directly from VSCode",
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
@@ -151,9 +115,45 @@
     "npm-run-all": "^4.1.5",
     "typescript": "^5.7.3"
   },
-  "dependencies": {
-    "axios": "^1.8.3",
-    "dayjs": "^1.11.13"
+  "displayName": "PostHog",
+  "engines": {
+    "vscode": "^1.98.0"
   },
-  "license": "MIT"
+  "galleryBanner": {
+    "color": "#f0f0f0",
+    "theme": "light"
+  },
+  "icon": "resources/posthog-icon.png",
+  "keywords": [
+    "posthog",
+    "analytics",
+    "product analytics",
+    "feature flags",
+    "insights",
+    "session recordings",
+    "data visualization"
+  ],
+  "license": "MIT",
+  "main": "./dist/extension.js",
+  "name": "posthog-vscode",
+  "publisher": "posthog",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PostHog/posthog-extension"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
+    "compile-tests": "tsc -p . --outDir out",
+    "lint": "eslint src",
+    "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
+    "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
+    "test": "vscode-test",
+    "vscode:prepublish": "pnpm run package",
+    "watch": "npm-run-all -p watch:*",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json"
+  },
+  "version": "1.0.1"
 }
