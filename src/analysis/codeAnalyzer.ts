@@ -14,7 +14,8 @@ export interface PostHogUsage {
     | "integration" // Django, Sentry integrations
     | "group analytics" // group_identify, group
     | "error tracking" // capture_exception
-    | "configuration"; // other posthog.* = value settings
+    | "configuration"
+    | "hook";
   context: string;
   warning?: string;
 }
@@ -103,10 +104,43 @@ export class CodeAnalyzer {
     // Import patterns
     const importPatterns = [/^import\s+posthog/i, /^from\s+posthog\s+import/i];
 
-    // Initialization patterns
+    // Helper function to check for PostHog host patterns
+    const hasPostHogHost = (line: string) => {
+      const hostPatterns = [
+        /host\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+        /api_host\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+        /ui_host\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+        /\w*host\w*\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+      ];
+      return hostPatterns.some((pattern) => pattern.test(line));
+    };
+
+    // Updated initialization patterns with host checking
     const initializationPatterns = [
-      /\w+\s*=\s*PostHog\(/i,
-      /\w+\s*=\s*posthog\.PostHog\(/i,
+      {
+        pattern: /\w+\s*=\s*PostHog\((.*?)(?:\)|$)/i,
+        checkHost: (match: string, fullLine: string) => {
+          // Check if any host is explicitly set
+          const hasExplicitHost = hasPostHogHost(fullLine);
+          // Check if no host is set at all (which means it defaults to posthog.com)
+          const hasNoHost =
+            !fullLine.includes("host=") &&
+            !fullLine.includes("api_host=") &&
+            !fullLine.includes("ui_host=");
+          return hasExplicitHost || hasNoHost;
+        },
+      },
+      {
+        pattern: /\w+\s*=\s*posthog\.PostHog\((.*?)(?:\)|$)/i,
+        checkHost: (match: string, fullLine: string) => {
+          const hasExplicitHost = hasPostHogHost(fullLine);
+          const hasNoHost =
+            !fullLine.includes("host=") &&
+            !fullLine.includes("api_host=") &&
+            !fullLine.includes("ui_host=");
+          return hasExplicitHost || hasNoHost;
+        },
+      },
     ];
 
     // Configuration patterns (any attribute setting)
@@ -172,6 +206,13 @@ export class CodeAnalyzer {
       /POSTHOG_DJANGO\s*=/i,
     ];
 
+    // Updated host setting pattern to include all variants
+    const hostSettingPattern = {
+      pattern:
+        /(?:posthog|client)\.\w*host\w*\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+      type: "initialization" as const,
+    };
+
     lines.forEach((line, index) => {
       const lineNumber = index + 1;
 
@@ -191,9 +232,25 @@ export class CodeAnalyzer {
 
       // Check each pattern type with its corresponding functionality type
       importPatterns.forEach((pattern) => addUsage(pattern, "import"));
-      initializationPatterns.forEach((pattern) =>
-        addUsage(pattern, "initialization")
-      );
+      initializationPatterns.forEach(({ pattern, checkHost }) => {
+        const match = line.match(pattern);
+        if (match) {
+          const usage: PostHogUsage = {
+            file: filePath,
+            line: lineNumber,
+            column: line.indexOf(match[0]),
+            type: "initialization",
+            context: match[0],
+          };
+
+          if (checkHost(match[0], line)) {
+            usage.warning =
+              "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy";
+          }
+
+          usages.push(usage);
+        }
+      });
       configurationPatterns.forEach((pattern) =>
         addUsage(pattern, "configuration")
       );
@@ -230,12 +287,20 @@ export class CodeAnalyzer {
         addUsage(pattern, "feature flags")
       );
       groupPatterns.forEach((pattern) => addUsage(pattern, "group analytics"));
-      errorTrackingPatterns.forEach((pattern) =>
-        addUsage(pattern, "error tracking")
-      );
-      integrationPatterns.forEach((pattern) =>
-        addUsage(pattern, "integration")
-      );
+
+      // Check direct host setting
+      const hostMatch = line.match(hostSettingPattern.pattern);
+      if (hostMatch) {
+        usages.push({
+          file: filePath,
+          line: lineNumber,
+          column: line.indexOf(hostMatch[0]),
+          type: hostSettingPattern.type,
+          context: hostMatch[0],
+          warning:
+            "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy",
+        });
+      }
     });
   }
 
@@ -253,13 +318,62 @@ export class CodeAnalyzer {
       /^import\s+.*from\s+['"]@posthog\/react-native['"]/i,
     ];
 
-    // Updated initialization patterns
+    // Helper function to check for PostHog host patterns
+    const hasPostHogHost = (line: string) => {
+      const hostPatterns = [
+        /host\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+        /api_host\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+        /ui_host\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+        /\w*host\w*\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+      ];
+      return hostPatterns.some((pattern) => pattern.test(line));
+    };
+
+    // Remove usePostHog from initialization patterns and create new hook patterns
+    const hookPatterns = [
+      {
+        pattern: /usePostHog\((.*?)(?:\)|$)/i,
+        type: "hook" as const,
+      },
+    ];
+
     const initializationPatterns = [
-      /usePostHog\(/i,
-      /<PostHogProvider[^>]*>/i,
-      /new\s+PostHog\(/i,
-      /posthog(?:\?)?\.init\(/i,
-      /posthog(?:\?)?\.initReactNativeNavigation\(/i,
+      {
+        pattern: /<PostHogProvider[^>]*>/i,
+        checkHost: (match: string, fullLine: string) => {
+          const hasExplicitHost = hasPostHogHost(fullLine);
+          const hasNoHost =
+            !fullLine.includes("host=") &&
+            !fullLine.includes("host:") &&
+            !fullLine.includes("api_host") &&
+            !fullLine.includes("ui_host");
+          return hasExplicitHost || hasNoHost;
+        },
+      },
+      {
+        pattern: /new\s+PostHog\((.*?)(?:\)|$)/i,
+        checkHost: (match: string, fullLine: string) => {
+          const hasExplicitHost = hasPostHogHost(fullLine);
+          const hasNoHost =
+            !fullLine.includes("host:") &&
+            !fullLine.includes("host=") &&
+            !fullLine.includes("api_host") &&
+            !fullLine.includes("ui_host");
+          return hasExplicitHost || hasNoHost;
+        },
+      },
+      {
+        pattern: /posthog(?:\?)?\.init\((.*?)(?:\)|$)/i,
+        checkHost: (match: string, fullLine: string) => {
+          const hasExplicitHost = hasPostHogHost(fullLine);
+          const hasNoHost =
+            !fullLine.includes("host:") &&
+            !fullLine.includes("host=") &&
+            !fullLine.includes("api_host") &&
+            !fullLine.includes("ui_host");
+          return hasExplicitHost || hasNoHost;
+        },
+      },
     ];
 
     // Updated event tracking patterns with dynamic name detection
@@ -359,6 +473,13 @@ export class CodeAnalyzer {
     // Updated group patterns
     const groupPatterns = [/posthog(?:\?)?\.group\(/i];
 
+    // Updated host setting pattern to include all variants
+    const hostSettingPattern = {
+      pattern:
+        /(?:posthog|client)\.\w*host\w*\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
+      type: "initialization" as const,
+    };
+
     lines.forEach((line, index) => {
       const lineNumber = index + 1;
 
@@ -377,9 +498,25 @@ export class CodeAnalyzer {
 
       // Check each pattern type
       importPatterns.forEach((pattern) => addUsage(pattern, "import"));
-      initializationPatterns.forEach((pattern) =>
-        addUsage(pattern, "initialization")
-      );
+      initializationPatterns.forEach(({ pattern, checkHost }) => {
+        const match = line.match(pattern);
+        if (match) {
+          const usage: PostHogUsage = {
+            file: filePath,
+            line: lineNumber,
+            column: line.indexOf(match[0]),
+            type: "initialization",
+            context: match[0],
+          };
+
+          if (checkHost(match[0], line)) {
+            usage.warning =
+              "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy";
+          }
+
+          usages.push(usage);
+        }
+      });
       eventTrackingPatterns.forEach(
         ({ pattern, isDynamic, getEventName, checkProperties }) => {
           const match = line.match(pattern);
@@ -435,6 +572,23 @@ export class CodeAnalyzer {
         addUsage(pattern, "feature flags")
       );
       groupPatterns.forEach((pattern) => addUsage(pattern, "group analytics"));
+
+      // Check direct host setting
+      const hostMatch = line.match(hostSettingPattern.pattern);
+      if (hostMatch) {
+        usages.push({
+          file: filePath,
+          line: lineNumber,
+          column: line.indexOf(hostMatch[0]),
+          type: hostSettingPattern.type,
+          context: hostMatch[0],
+          warning:
+            "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy",
+        });
+      }
+
+      // Add hook pattern check
+      hookPatterns.forEach(({ pattern, type }) => addUsage(pattern, type));
     });
   }
 
