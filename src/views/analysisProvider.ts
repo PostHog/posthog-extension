@@ -31,6 +31,9 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
     if (element.isFile) {
       return Promise.resolve(this.getFileUsages(element.filePath));
     }
+    if (element.usage?.warning) {
+      return Promise.resolve([this.createWarningItem(element.usage.warning)]);
+    }
     return Promise.resolve([]);
   }
 
@@ -39,12 +42,20 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
     return Object.entries(usagesByFile)
       .sort(([filePathA], [filePathB]) => filePathA.localeCompare(filePathB))
       .map(([filePath, fileUsages]) => {
+        const warningCount = fileUsages.filter((u) => u.warning).length;
         const item = new AnalysisItem(
           path.basename(filePath),
           vscode.TreeItemCollapsibleState.Expanded,
           true,
           filePath
         );
+
+        // Add warning count badge to files that have warnings
+        if (warningCount > 0) {
+          item.badge = new vscode.ThemeIcon("warning");
+          item.description = `⚠️ ${warningCount}`; // Show total warnings in the file
+        }
+
         item.iconPath = this.getFileIcon(filePath);
         item.tooltip = filePath;
         return item;
@@ -64,10 +75,20 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
       .map((usage) => {
         const item = new AnalysisItem(
           `${usage.type}: ${usage.context}`,
-          vscode.TreeItemCollapsibleState.None,
+          usage.warning
+            ? vscode.TreeItemCollapsibleState.Expanded
+            : vscode.TreeItemCollapsibleState.None,
           false,
-          filePath
+          filePath,
+          usage
         );
+
+        // Add warning badge if there's a warning
+        if (usage.warning) {
+          item.badge = new vscode.ThemeIcon("warning");
+          item.description = "⚠️ 1"; // Add warning count in the description
+        }
+
         item.tooltip = this.getCodePreview(filePath, usage.line);
         item.command = {
           command: "posthog.openFileAtLocation",
@@ -76,6 +97,34 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
         };
         return item;
       });
+  }
+
+  private createWarningItem(warning: string): AnalysisItem {
+    const item = new AnalysisItem(
+      warning,
+      vscode.TreeItemCollapsibleState.None,
+      false,
+      "",
+      undefined
+    );
+    item.iconPath = new vscode.ThemeIcon("warning");
+    item.contextValue = "warning";
+
+    // Add yellow highlighting
+    item.tooltip = warning;
+    item.description = ""; // Ensure no additional text appears after the label
+
+    // Use VS Code's built-in warning colors
+    item.resourceUri = vscode.Uri.parse("warning"); // This is a hack to get the warning color
+    item.decorationProvider = true;
+
+    // Set label formatting with yellow theme color
+    item.label = {
+      label: warning,
+      highlights: [[0, warning.length]], // Highlight entire text
+    };
+
+    return item;
   }
 
   private groupUsagesByFile(): { [key: string]: PostHogUsage[] } {
@@ -103,11 +152,15 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
 
 class AnalysisItem extends vscode.TreeItem {
   constructor(
-    public readonly label: string,
+    public readonly label: string | vscode.TreeItemLabel,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
     public readonly isFile: boolean,
-    public readonly filePath: string
+    public readonly filePath: string,
+    public readonly usage?: PostHogUsage
   ) {
     super(label, collapsibleState);
   }
+
+  decorationProvider?: boolean;
+  badge?: vscode.ThemeIcon;
 }

@@ -16,10 +16,27 @@ export interface PostHogUsage {
     | "error tracking" // capture_exception
     | "configuration"; // other posthog.* = value settings
   context: string;
+  warning?: string;
 }
 
 export class CodeAnalyzer {
+  private diagnosticCollection: vscode.DiagnosticCollection;
+  private eventTrackingMap: Map<
+    string,
+    { file: string; line: number; column: number }[]
+  >;
+
+  constructor() {
+    // Create a diagnostic collection for PostHog warnings
+    this.diagnosticCollection =
+      vscode.languages.createDiagnosticCollection("posthog");
+    this.eventTrackingMap = new Map();
+  }
+
   async analyzeWorkspace(): Promise<PostHogUsage[]> {
+    // Clear previous diagnostics
+    this.diagnosticCollection.clear();
+
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
       return [];
@@ -38,6 +55,9 @@ export class CodeAnalyzer {
         usages.push(...fileUsages);
       }
     }
+
+    // After analyzing, show warnings
+    this.showWarnings(usages);
 
     return this.deduplicateUsages(usages);
   }
@@ -88,11 +108,21 @@ export class CodeAnalyzer {
     // Configuration patterns (any attribute setting)
     const configurationPatterns = [/posthog\.\w+\s*=/i];
 
-    // Event tracking patterns
+    // Event tracking patterns with dynamic name detection
     const eventTrackingPatterns = [
-      /posthog\.capture\(/i,
-      /posthog\.identify\(/i,
-      /posthog\.alias\(/i,
+      {
+        pattern: /posthog\.capture\((.*?)\)/i,
+        isDynamic: (match: string) => {
+          // Check for f-strings, .format(), % formatting, string concatenation
+          return (
+            /f['"].*?[{}].*?['"]/.test(match) || // f-strings
+            /\.format\(/.test(match) || // .format()
+            /%[sd]/.test(match) || // % formatting
+            /\s*\+\s*/.test(match) || // string concatenation
+            /\$\{.*?\}/.test(match)
+          ); // template literals
+        },
+      },
     ];
 
     // Feature flag patterns
@@ -140,9 +170,26 @@ export class CodeAnalyzer {
       configurationPatterns.forEach((pattern) =>
         addUsage(pattern, "configuration")
       );
-      eventTrackingPatterns.forEach((pattern) =>
-        addUsage(pattern, "event tracking")
-      );
+      eventTrackingPatterns.forEach(({ pattern, isDynamic }) => {
+        const match = line.match(pattern);
+        if (match) {
+          const fullMatch = match[0];
+          const usage: PostHogUsage = {
+            file: filePath,
+            line: lineNumber,
+            column: line.indexOf(fullMatch),
+            type: "event tracking",
+            context: fullMatch,
+          };
+
+          if (isDynamic(fullMatch)) {
+            usage.warning =
+              "Capturing events with dynamic names is not recommended";
+          }
+
+          usages.push(usage);
+        }
+      });
       featureFlagPatterns.forEach((pattern) =>
         addUsage(pattern, "feature flags")
       );
@@ -179,11 +226,31 @@ export class CodeAnalyzer {
       /posthog(?:\?)?\.initReactNativeNavigation\(/i,
     ];
 
-    // Updated event tracking patterns
+    // Updated event tracking patterns with dynamic name detection
     const eventTrackingPatterns = [
-      /posthog(?:\?)?\.capture\(/i,
-      /posthog(?:\?)?\.screen\(/i,
-      /ph-label=["'][^"']+["']/i,
+      {
+        // Update pattern to catch both quoted strings and template literals
+        pattern: /posthog(?:\?)?\.capture\(\s*(?:['"`].*?['"`])/i,
+        isDynamic: (match: string) => {
+          return (
+            /`.*?\${.*?}.*?`/.test(match) || // template literals
+            /\s*\+\s*/.test(match) || // string concatenation
+            /\(\s*[^"'`]\w+\s*\)/.test(match) // variable as event name
+          );
+        },
+        getEventName: (match: string) => {
+          // Handle both regular strings and template literals
+          const eventNameMatch = match.match(
+            /posthog(?:\?)?\.capture\(\s*([`'"'])(.*?)\1/i
+          );
+          if (eventNameMatch) {
+            const [_, quoteType, eventName] = eventNameMatch;
+            // If it's a template literal, mark it as dynamic
+            return quoteType === "`" ? null : eventName;
+          }
+          return null;
+        },
+      },
     ];
 
     // Updated user identification patterns
@@ -250,9 +317,38 @@ export class CodeAnalyzer {
       initializationPatterns.forEach((pattern) =>
         addUsage(pattern, "initialization")
       );
-      eventTrackingPatterns.forEach((pattern) =>
-        addUsage(pattern, "event tracking")
-      );
+      eventTrackingPatterns.forEach(({ pattern, isDynamic, getEventName }) => {
+        const match = line.match(pattern);
+        if (match) {
+          const fullMatch = match[0];
+          const eventName = getEventName(fullMatch);
+          const usage: PostHogUsage = {
+            file: filePath,
+            line: lineNumber,
+            column: line.indexOf(fullMatch),
+            type: "event tracking",
+            context: fullMatch,
+          };
+
+          if (isDynamic(fullMatch)) {
+            usage.warning =
+              "Capturing events with dynamic names is not recommended";
+          }
+
+          // Track event name and location
+          if (eventName) {
+            const locations = this.eventTrackingMap.get(eventName) || [];
+            locations.push({
+              file: filePath,
+              line: lineNumber,
+              column: line.indexOf(fullMatch),
+            });
+            this.eventTrackingMap.set(eventName, locations);
+          }
+
+          usages.push(usage);
+        }
+      });
       userIdentificationPatterns.forEach((pattern) =>
         addUsage(pattern, "identification")
       );
@@ -268,5 +364,141 @@ export class CodeAnalyzer {
       );
       groupPatterns.forEach((pattern) => addUsage(pattern, "group analytics"));
     });
+  }
+
+  private calculateStringSimilarity(str1: string, str2: string): number {
+    // Levenshtein distance implementation
+    const matrix: number[][] = [];
+
+    for (let i = 0; i <= str1.length; i++) {
+      matrix[i] = [i];
+    }
+
+    for (let j = 0; j <= str2.length; j++) {
+      matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= str1.length; i++) {
+      for (let j = 1; j <= str2.length; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+
+    const distance = matrix[str1.length][str2.length];
+    const maxLength = Math.max(str1.length, str2.length);
+    return 1 - distance / maxLength;
+  }
+
+  private showWarnings(usages: PostHogUsage[]) {
+    const diagnosticMap = new Map<string, vscode.Diagnostic[]>();
+    const SIMILARITY_THRESHOLD = 0.7;
+
+    // First pass: Check for similar events and update usage objects
+    for (const usage of usages) {
+      if (usage.type === "event tracking") {
+        const eventName = usage.context.match(
+          /posthog(?:\?)?\.capture\(\s*['"](.+?)['"]/i
+        )?.[1];
+
+        if (eventName) {
+          // Check all other event tracking usages for similar names
+          const similarEvents = usages
+            .filter(
+              (otherUsage) =>
+                otherUsage.type === "event tracking" &&
+                otherUsage.file !== usage.file &&
+                otherUsage !== usage
+            )
+            .map((otherUsage) => {
+              const otherEventName = otherUsage.context.match(
+                /posthog(?:\?)?\.capture\(\s*['"](.+?)['"]/i
+              )?.[1];
+              return otherEventName
+                ? {
+                    similarity: this.calculateStringSimilarity(
+                      eventName,
+                      otherEventName
+                    ),
+                    usage: otherUsage,
+                    eventName: otherEventName,
+                  }
+                : null;
+            })
+            .filter(
+              (result): result is NonNullable<typeof result> =>
+                result !== null && result.similarity >= SIMILARITY_THRESHOLD
+            );
+
+          if (similarEvents.length > 0) {
+            // Sort by similarity descending
+            similarEvents.sort((a, b) => b.similarity - a.similarity);
+            const mostSimilar = similarEvents[0];
+            const similarFile = path.basename(mostSimilar.usage.file);
+            usage.warning = `Similar event "${mostSimilar.eventName}" (${(
+              mostSimilar.similarity * 100
+            ).toFixed(1)}% similar) is tracked in ${similarFile}`;
+          }
+        }
+      }
+    }
+
+    // Second pass: Create diagnostics for all warnings
+    for (const usage of usages) {
+      if (usage.warning) {
+        const diagnostic = new vscode.Diagnostic(
+          new vscode.Range(
+            usage.line - 1,
+            usage.column,
+            usage.line - 1,
+            usage.column + usage.context.length
+          ),
+          `PostHog: ${usage.warning}`,
+          vscode.DiagnosticSeverity.Warning
+        );
+
+        // Add related information only for similar event warnings
+        if (usage.warning.includes("already tracking")) {
+          const similarLocation = this.eventTrackingMap
+            .get(
+              usage.context.match(
+                /posthog(?:\?)?\.capture\(\s*['"](.+?)['"]/i
+              )?.[1] || ""
+            )
+            ?.find((loc) => loc.file !== usage.file);
+
+          if (similarLocation) {
+            diagnostic.relatedInformation = [
+              new vscode.DiagnosticRelatedInformation(
+                new vscode.Location(
+                  vscode.Uri.file(similarLocation.file),
+                  new vscode.Position(
+                    similarLocation.line - 1,
+                    similarLocation.column
+                  )
+                ),
+                `Similar event tracked here`
+              ),
+            ];
+          }
+        }
+
+        const diagnostics = diagnosticMap.get(usage.file) || [];
+        diagnostics.push(diagnostic);
+        diagnosticMap.set(usage.file, diagnostics);
+      }
+    }
+
+    // Set diagnostics for each file
+    for (const [file, diagnostics] of diagnosticMap.entries()) {
+      this.diagnosticCollection.set(vscode.Uri.file(file), diagnostics);
+    }
   }
 }
