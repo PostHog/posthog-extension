@@ -54,6 +54,14 @@
       {
         "command": "posthog.debugConnection",
         "title": "PostHog: Debug API Connection"
+      },
+      {
+        "command": "posthog.analyzeCode",
+        "title": "PostHog: Analyze Code for SDK Usage"
+      },
+      {
+        "command": "posthog.openFileAtLocation",
+        "title": "PostHog: Open File at Location"
       }
     ],
     "configuration": {
@@ -84,6 +92,10 @@
         {
           "id": "posthogRecordings",
           "name": "Session Recordings"
+        },
+        {
+          "id": "posthogAnalysis",
+          "name": "SDK Usage Analysis"
         }
       ]
     },
@@ -113,7 +125,8 @@
     "esbuild": "^0.25.0",
     "eslint": "^9.21.0",
     "npm-run-all": "^4.1.5",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "node-gyp": "^10.0.1"
   },
   "displayName": "PostHog",
   "engines": {
@@ -153,7 +166,8 @@
     "watch": "npm-run-all -p watch:*",
     "watch-tests": "tsc -p . -w --outDir out",
     "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json"
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "rebuild": "node-gyp rebuild"
   },
   "version": "1.0.2"
 }

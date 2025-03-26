@@ -1,0 +1,113 @@
+import * as vscode from "vscode";
+import { PostHogUsage } from "../analysis/codeAnalyzer";
+import * as fs from "fs";
+import * as path from "path";
+
+export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
+  private _onDidChangeTreeData: vscode.EventEmitter<
+    AnalysisItem | undefined | null | void
+  > = new vscode.EventEmitter<AnalysisItem | undefined | null | void>();
+  readonly onDidChangeTreeData: vscode.Event<
+    AnalysisItem | undefined | null | void
+  > = this._onDidChangeTreeData.event;
+
+  private usages: PostHogUsage[] = [];
+
+  constructor(private context: vscode.ExtensionContext) {}
+
+  refresh(usages: PostHogUsage[]) {
+    this.usages = usages;
+    this._onDidChangeTreeData.fire();
+  }
+
+  getTreeItem(element: AnalysisItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: AnalysisItem): Thenable<AnalysisItem[]> {
+    if (!element) {
+      return Promise.resolve(this.getRootItems());
+    }
+    if (element.isFile) {
+      return Promise.resolve(this.getFileUsages(element.filePath));
+    }
+    return Promise.resolve([]);
+  }
+
+  private getRootItems(): AnalysisItem[] {
+    const usagesByFile = this.groupUsagesByFile();
+    return Object.entries(usagesByFile)
+      .sort(([filePathA], [filePathB]) => filePathA.localeCompare(filePathB))
+      .map(([filePath, fileUsages]) => {
+        const item = new AnalysisItem(
+          path.basename(filePath),
+          vscode.TreeItemCollapsibleState.Expanded,
+          true,
+          filePath
+        );
+        item.iconPath = this.getFileIcon(filePath);
+        item.tooltip = filePath;
+        return item;
+      });
+  }
+
+  private getFileIcon(filePath: string): vscode.ThemeIcon {
+    return new vscode.ThemeIcon("file-code");
+  }
+
+  private getFileUsages(filePath: string): AnalysisItem[] {
+    const fileUsages = this.usages.filter((usage) => usage.file === filePath);
+    return fileUsages
+      .sort((a, b) =>
+        `${a.type}: ${a.context}`.localeCompare(`${b.type}: ${b.context}`)
+      )
+      .map((usage) => {
+        const item = new AnalysisItem(
+          `${usage.type}: ${usage.context}`,
+          vscode.TreeItemCollapsibleState.None,
+          false,
+          filePath
+        );
+        item.tooltip = this.getCodePreview(filePath, usage.line);
+        item.command = {
+          command: "posthog.openFileAtLocation",
+          title: "Open File",
+          arguments: [usage],
+        };
+        return item;
+      });
+  }
+
+  private groupUsagesByFile(): { [key: string]: PostHogUsage[] } {
+    return this.usages.reduce((acc, usage) => {
+      if (!acc[usage.file]) {
+        acc[usage.file] = [];
+      }
+      acc[usage.file].push(usage);
+      return acc;
+    }, {} as { [key: string]: PostHogUsage[] });
+  }
+
+  private getCodePreview(filePath: string, lineNumber: number): string {
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      const lines = content.split("\n");
+      const start = Math.max(0, lineNumber - 2);
+      const end = Math.min(lines.length, lineNumber + 2);
+      return lines.slice(start, end).join("\n");
+    } catch (error) {
+      return "Unable to load code preview";
+    }
+  }
+}
+
+class AnalysisItem extends vscode.TreeItem {
+  constructor(
+    public readonly label: string,
+    public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+    public readonly isFile: boolean,
+    public readonly filePath: string
+  ) {
+    super(label, collapsibleState);
+  }
+}

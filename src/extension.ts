@@ -1,17 +1,35 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
-import { PostHogClient } from './api/posthogClient';
-import { ProjectsProvider } from './views/projectsProvider';
-import { InsightsProvider } from './views/insightsProvider';
-import { RecordingsProvider } from './views/recordingsProvider';
+import * as vscode from "vscode";
+import { PostHogClient } from "./api/posthogClient";
+import { ProjectsProvider } from "./views/projectsProvider";
+import { InsightsProvider } from "./views/insightsProvider";
+import { RecordingsProvider } from "./views/recordingsProvider";
+import { AnalysisProvider } from "./views/analysisProvider";
+import { CodeAnalyzer, PostHogUsage } from "./analysis/codeAnalyzer";
+
+// Debounce function
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | undefined;
+  return function executedFunction(...args: Parameters<T>) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
   // Use the console to output diagnostic information (console.log) and errors (console.error)
   // This line of code will only be executed once when your extension is activated
-  console.log('PostHog extension is now active');
+  console.log("PostHog extension is now active");
 
   // Initialize API client
   const posthogClient = new PostHogClient();
@@ -20,22 +38,54 @@ export function activate(context: vscode.ExtensionContext) {
   const projectsProvider = new ProjectsProvider(context);
   const insightsProvider = new InsightsProvider(context);
   const recordingsProvider = new RecordingsProvider(context);
+  const analysisProvider = new AnalysisProvider(context);
 
   // Register tree views
-  const projectsView = vscode.window.createTreeView('posthogProjects', {
+  const projectsView = vscode.window.createTreeView("posthogProjects", {
     treeDataProvider: projectsProvider,
     showCollapseAll: true,
   });
 
-  const insightsView = vscode.window.createTreeView('posthogInsights', {
+  const insightsView = vscode.window.createTreeView("posthogInsights", {
     treeDataProvider: insightsProvider,
     showCollapseAll: true,
   });
 
-  const recordingsView = vscode.window.createTreeView('posthogRecordings', {
+  const recordingsView = vscode.window.createTreeView("posthogRecordings", {
     treeDataProvider: recordingsProvider,
     showCollapseAll: true,
   });
+
+  const analysisView = vscode.window.createTreeView("posthogAnalysis", {
+    treeDataProvider: analysisProvider,
+    showCollapseAll: true,
+  });
+
+  // Initialize code analyzer
+  const analyzer = new CodeAnalyzer();
+
+  // Create debounced analysis function
+  const debouncedAnalyze = debounce(async () => {
+    const usages = await analyzer.analyzeWorkspace();
+    analysisProvider.refresh(usages);
+  }, 1000); // 1 second debounce
+
+  // Listen for editor open events
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      debouncedAnalyze();
+    })
+  );
+
+  // Listen for document change events
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(() => {
+      debouncedAnalyze();
+    })
+  );
+
+  // Initial analysis
+  debouncedAnalyze();
 
   // Register commands
   context.subscriptions.push(
@@ -43,12 +93,13 @@ export function activate(context: vscode.ExtensionContext) {
     projectsView,
     insightsView,
     recordingsView,
+    analysisView,
 
     // Set API Key command
-    vscode.commands.registerCommand('posthog.setApiKey', async () => {
+    vscode.commands.registerCommand("posthog.setApiKey", async () => {
       const apiKey = await vscode.window.showInputBox({
-        prompt: 'Enter your PostHog Personal API Key',
-        placeHolder: 'phx_xxxxxxxxxxxxxxxxxxxx',
+        prompt: "Enter your PostHog Personal API Key",
+        placeHolder: "phx_xxxxxxxxxxxxxxxxxxxx",
         password: true,
         ignoreFocusOut: true,
       });
@@ -61,20 +112,20 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (isValid) {
           vscode.window.showInformationMessage(
-            'PostHog API key saved successfully!'
+            "PostHog API key saved successfully!"
           );
           projectsProvider.refresh();
         } else {
           vscode.window.showErrorMessage(
-            'Failed to connect to PostHog with the provided API key.'
+            "Failed to connect to PostHog with the provided API key."
           );
         }
       }
     }),
 
     // Set US API Host command
-    vscode.commands.registerCommand('posthog.setUsApiHost', async () => {
-      const usApiHost = 'https://us.posthog.com';
+    vscode.commands.registerCommand("posthog.setUsApiHost", async () => {
+      const usApiHost = "https://us.posthog.com";
       await posthogClient.updateApiHost(usApiHost);
       vscode.window.showInformationMessage(
         `PostHog API host set to US Cloud: ${usApiHost}`
@@ -83,8 +134,8 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Set EU API Host command
-    vscode.commands.registerCommand('posthog.setEuApiHost', async () => {
-      const euApiHost = 'https://eu.posthog.com';
+    vscode.commands.registerCommand("posthog.setEuApiHost", async () => {
+      const euApiHost = "https://eu.posthog.com";
       await posthogClient.updateApiHost(euApiHost);
       vscode.window.showInformationMessage(
         `PostHog API host set to EU Cloud: ${euApiHost}`
@@ -93,11 +144,11 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Set Custom API Host command
-    vscode.commands.registerCommand('posthog.setCustomApiHost', async () => {
+    vscode.commands.registerCommand("posthog.setCustomApiHost", async () => {
       const customApiHost = await vscode.window.showInputBox({
-        prompt: 'Enter your PostHog API host URL',
-        placeHolder: 'https://your-instance.posthog.com',
-        value: vscode.workspace.getConfiguration('posthog').get('apiHost'),
+        prompt: "Enter your PostHog API host URL",
+        placeHolder: "https://your-instance.posthog.com",
+        value: vscode.workspace.getConfiguration("posthog").get("apiHost"),
         ignoreFocusOut: true,
       });
 
@@ -111,15 +162,15 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Debug API Connection command
-    vscode.commands.registerCommand('posthog.debugConnection', async () => {
-      const apiKey = vscode.workspace.getConfiguration('posthog').get('apiKey');
+    vscode.commands.registerCommand("posthog.debugConnection", async () => {
+      const apiKey = vscode.workspace.getConfiguration("posthog").get("apiKey");
       const apiHost = vscode.workspace
-        .getConfiguration('posthog')
-        .get('apiHost');
+        .getConfiguration("posthog")
+        .get("apiHost");
 
       if (!apiKey) {
         vscode.window.showErrorMessage(
-          'No API key configured. Please set your PostHog API key first.'
+          "No API key configured. Please set your PostHog API key first."
         );
         return;
       }
@@ -127,7 +178,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Testing PostHog API connection...',
+          title: "Testing PostHog API connection...",
           cancellable: false,
         },
         async () => {
@@ -141,7 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
               );
             } else {
               const message = `Failed to connect to PostHog API at ${apiHost}. Please check your API key and host settings.`;
-              const viewSettings = 'View Settings';
+              const viewSettings = "View Settings";
               const result = await vscode.window.showErrorMessage(
                 message,
                 viewSettings
@@ -149,13 +200,13 @@ export function activate(context: vscode.ExtensionContext) {
 
               if (result === viewSettings) {
                 await vscode.commands.executeCommand(
-                  'workbench.action.openSettings',
-                  'posthog'
+                  "workbench.action.openSettings",
+                  "posthog"
                 );
               }
             }
           } catch (error) {
-            console.error('Debug connection error:', error);
+            console.error("Debug connection error:", error);
             vscode.window.showErrorMessage(
               `Connection test error: ${
                 error instanceof Error ? error.message : String(error)
@@ -168,7 +219,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Copy Project Token command
     vscode.commands.registerCommand(
-      'posthog.copyProjectToken',
+      "posthog.copyProjectToken",
       async (apiToken: string, projectName: string) => {
         await vscode.env.clipboard.writeText(apiToken);
         vscode.window.showInformationMessage(
@@ -179,11 +230,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     // List Insights command
     vscode.commands.registerCommand(
-      'posthog.listInsights',
+      "posthog.listInsights",
       async (projectId: number, projectName: string) => {
         insightsProvider.setProject(projectId, projectName);
         recordingsProvider.setProject(projectId, projectName);
-        await vscode.commands.executeCommand('posthogInsights.focus');
+        await vscode.commands.executeCommand("posthogInsights.focus");
         vscode.window.showInformationMessage(
           `Viewing insights for project: ${projectName}`
         );
@@ -192,7 +243,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // View Insight Details command
     vscode.commands.registerCommand(
-      'posthog.viewInsightDetails',
+      "posthog.viewInsightDetails",
       async (projectId: number, insightId: number, insightName: string) => {
         const insight = await posthogClient.getInsightDetails(
           projectId,
@@ -202,7 +253,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (insight) {
           // Create and show a webview panel to display the insight details
           const panel = vscode.window.createWebviewPanel(
-            'posthogInsightDetails',
+            "posthogInsightDetails",
             `PostHog Insight: ${insightName}`,
             vscode.ViewColumn.One,
             { enableScripts: true }
@@ -219,10 +270,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Create Annotation command
     vscode.commands.registerCommand(
-      'posthog.createAnnotation',
+      "posthog.createAnnotation",
       async (projectId: number, projectName: string) => {
         const content = await vscode.window.showInputBox({
-          prompt: 'Enter annotation content',
+          prompt: "Enter annotation content",
           placeHolder: 'e.g., "Released version 1.2.3"',
           ignoreFocusOut: true,
         });
@@ -230,16 +281,16 @@ export function activate(context: vscode.ExtensionContext) {
         if (content) {
           // Let the user choose if they want to use the current time or a custom date
           const dateOption = await vscode.window.showQuickPick(
-            ['Current time', 'Custom date/time'],
-            { placeHolder: 'Select when this annotation should be marked' }
+            ["Current time", "Custom date/time"],
+            { placeHolder: "Select when this annotation should be marked" }
           );
 
           let dateMarker: string | undefined = undefined;
 
-          if (dateOption === 'Custom date/time') {
+          if (dateOption === "Custom date/time") {
             const customDate = await vscode.window.showInputBox({
-              prompt: 'Enter date and time (ISO format)',
-              placeHolder: 'YYYY-MM-DDTHH:MM:SSZ (e.g., 2023-10-15T14:30:00Z)',
+              prompt: "Enter date and time (ISO format)",
+              placeHolder: "YYYY-MM-DDTHH:MM:SSZ (e.g., 2023-10-15T14:30:00Z)",
               ignoreFocusOut: true,
             });
 
@@ -269,13 +320,32 @@ export function activate(context: vscode.ExtensionContext) {
 
     // View Session Recordings command
     vscode.commands.registerCommand(
-      'posthog.viewSessionRecordings',
+      "posthog.viewSessionRecordings",
       async (projectId: number, projectName: string) => {
         recordingsProvider.setProject(projectId, projectName);
-        await vscode.commands.executeCommand('posthogRecordings.focus');
+        await vscode.commands.executeCommand("posthogRecordings.focus");
         vscode.window.showInformationMessage(
           `Viewing session recordings for project: ${projectName}`
         );
+      }
+    ),
+
+    // Code analysis commands
+    vscode.commands.registerCommand("posthog.analyzeCode", async () => {
+      const analyzer = new CodeAnalyzer();
+      const usages = await analyzer.analyzeWorkspace();
+      analysisProvider.refresh(usages);
+      vscode.commands.executeCommand("posthogAnalysis.focus");
+    }),
+
+    vscode.commands.registerCommand(
+      "posthog.openFileAtLocation",
+      async (usage: PostHogUsage) => {
+        const document = await vscode.workspace.openTextDocument(usage.file);
+        const position = new vscode.Position(usage.line - 1, usage.column);
+        await vscode.window.showTextDocument(document, {
+          selection: new vscode.Range(position, position),
+        });
       }
     )
   );
@@ -285,7 +355,7 @@ function getInsightDetailsWebview(insight: any): string {
   // Extract relevant information from the insight
   const name =
     insight.name || insight.derived_name || `Insight ${insight.short_id}`;
-  const description = insight.description || 'No description provided';
+  const description = insight.description || "No description provided";
 
   // Get theme type
   const isDarkTheme =
@@ -294,34 +364,34 @@ function getInsightDetailsWebview(insight: any): string {
   // Format created date
   const createdDate = insight.created_at
     ? new Date(insight.created_at).toLocaleDateString()
-    : 'Unknown date';
+    : "Unknown date";
 
   // Format creator information
   const creator = insight.created_by
     ? `${insight.created_by.first_name} ${insight.created_by.last_name}`.trim()
-    : 'Unknown user';
+    : "Unknown user";
 
   // Generate tags HTML if available
-  let tagsHtml = '';
+  let tagsHtml = "";
   if (insight.tags && insight.tags.length > 0) {
     tagsHtml = `
       <div class="tags">
         ${insight.tags
           .map((tag: string) => `<span class="tag">${tag}</span>`)
-          .join('')}
+          .join("")}
       </div>
     `;
   }
 
   // Generate a link to open the insight in PostHog
   const apiHost =
-    vscode.workspace.getConfiguration('posthog').get('apiHost') ||
-    'https://us.posthog.com';
+    vscode.workspace.getConfiguration("posthog").get("apiHost") ||
+    "https://us.posthog.com";
   const insightLink = `${apiHost}/insights/${insight.short_id}`;
 
   // Prepare chart data
-  let chartHtml = '';
-  let chartScript = '';
+  let chartHtml = "";
+  let chartScript = "";
 
   try {
     // Check if insight has result data
@@ -376,12 +446,12 @@ function getInsightDetailsWebview(insight: any): string {
       }
     }
   } catch (error) {
-    console.error('Error creating chart:', error);
-    chartHtml = '<p>Error rendering chart visualization</p>';
+    console.error("Error creating chart:", error);
+    chartHtml = "<p>Error rendering chart visualization</p>";
   }
 
   // Generate result visualization if possible
-  let resultHtml = '';
+  let resultHtml = "";
   if (insight.result) {
     try {
       resultHtml = `
@@ -395,7 +465,7 @@ function getInsightDetailsWebview(insight: any): string {
         </div>
       `;
     } catch (error) {
-      resultHtml = '<p>Error rendering result preview</p>';
+      resultHtml = "<p>Error rendering result preview</p>";
     }
   }
 
@@ -474,7 +544,7 @@ function getInsightDetailsWebview(insight: any): string {
           background-color: var(--vscode-editor-background);
           border-radius: 4px;
           box-shadow: 0 2px 8px ${
-            isDarkTheme ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.15)'
+            isDarkTheme ? "rgba(0, 0, 0, 0.5)" : "rgba(0, 0, 0, 0.15)"
           };
         }
       </style>
@@ -500,11 +570,11 @@ function getInsightDetailsWebview(insight: any): string {
           </tr>
           <tr>
             <th>Last Refresh</th>
-            <td>${insight.last_refresh || 'N/A'}</td>
+            <td>${insight.last_refresh || "N/A"}</td>
           </tr>
           <tr>
             <th>Query Status</th>
-            <td>${insight.query_status || 'N/A'}</td>
+            <td>${insight.query_status || "N/A"}</td>
           </tr>
         </table>
         
@@ -524,7 +594,7 @@ function getInsightDetailsWebview(insight: any): string {
  * Prepare chart data based on insight type and result data
  */
 function prepareChartData(insight: any): any {
-  let chartType = 'line';
+  let chartType = "line";
   let labels: string[] = [];
   let datasets: any[] = [];
 
@@ -535,16 +605,16 @@ function prepareChartData(insight: any): any {
       // Map PostHog display types to Chart.js chart types
       const displayType = insight.filters?.display || insight.query?.display;
       switch (displayType) {
-        case 'ActionsBarValue':
-        case 'ActionsPie':
-          chartType = 'pie';
+        case "ActionsBarValue":
+        case "ActionsPie":
+          chartType = "pie";
           break;
-        case 'ActionsBar':
-          chartType = 'bar';
+        case "ActionsBar":
+          chartType = "bar";
           break;
-        case 'ActionsLineGraph':
+        case "ActionsLineGraph":
         default:
-          chartType = 'line';
+          chartType = "line";
           break;
       }
     }
@@ -554,7 +624,7 @@ function prepareChartData(insight: any): any {
       // Handle trend/time series data
       if (insight.result[0]?.days || insight.result[0]?.dates) {
         // It's a time series chart
-        const timeField = insight.result[0]?.days ? 'days' : 'dates';
+        const timeField = insight.result[0]?.days ? "days" : "dates";
         labels = insight.result[0][timeField] || [];
 
         datasets = insight.result.map((series: any, index: number) => {
@@ -581,7 +651,7 @@ function prepareChartData(insight: any): any {
           ...new Set(breakdownData.map((item: any) => item.breakdown_value)),
         ];
 
-        labels = uniqueBreakdowns.map((value: any) => String(value || 'None'));
+        labels = uniqueBreakdowns.map((value: any) => String(value || "None"));
 
         const seriesData = uniqueBreakdowns.map((breakdown: any) => {
           const matchingItems = breakdownData.filter(
@@ -595,7 +665,7 @@ function prepareChartData(insight: any): any {
 
         datasets = [
           {
-            label: 'Breakdown',
+            label: "Breakdown",
             data: seriesData,
             backgroundColor: labels.map((_, i) => {
               const hue = (i * 137) % 360;
@@ -607,10 +677,10 @@ function prepareChartData(insight: any): any {
       }
       // Handle funnel data
       else if (
-        insight.filters?.insight === 'FUNNELS' ||
+        insight.filters?.insight === "FUNNELS" ||
         insight.result.some((item: any) => item.action_id !== undefined)
       ) {
-        chartType = 'bar';
+        chartType = "bar";
         const steps = insight.result;
 
         labels = steps.map(
@@ -621,27 +691,27 @@ function prepareChartData(insight: any): any {
 
         datasets = [
           {
-            label: 'Conversion',
+            label: "Conversion",
             data: data,
-            backgroundColor: 'rgba(66, 153, 225, 0.6)',
-            borderColor: 'rgb(66, 153, 225)',
+            backgroundColor: "rgba(66, 153, 225, 0.6)",
+            borderColor: "rgb(66, 153, 225)",
             borderWidth: 1,
           },
         ];
       }
       // Fallback for other types of results
       else {
-        chartType = 'bar';
+        chartType = "bar";
         labels = insight.result.map((_: any, i: number) => `Item ${i + 1}`);
 
         datasets = [
           {
-            label: 'Values',
+            label: "Values",
             data: insight.result.map((item: any) =>
-              typeof item === 'number' ? item : item.count || item.value || 0
+              typeof item === "number" ? item : item.count || item.value || 0
             ),
-            backgroundColor: 'rgba(66, 153, 225, 0.6)',
-            borderColor: 'rgb(66, 153, 225)',
+            backgroundColor: "rgba(66, 153, 225, 0.6)",
+            borderColor: "rgb(66, 153, 225)",
             borderWidth: 1,
           },
         ];
@@ -660,10 +730,10 @@ function prepareChartData(insight: any): any {
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            position: 'top',
+            position: "top",
             labels: {
               font: {
-                family: 'var(--vscode-font-family)',
+                family: "var(--vscode-font-family)",
               },
             },
           },
@@ -672,12 +742,12 @@ function prepareChartData(insight: any): any {
           },
         },
         scales:
-          chartType !== 'pie'
+          chartType !== "pie"
             ? {
                 x: {
                   ticks: {
                     font: {
-                      family: 'var(--vscode-font-family)',
+                      family: "var(--vscode-font-family)",
                     },
                   },
                   grid: {},
@@ -685,7 +755,7 @@ function prepareChartData(insight: any): any {
                 y: {
                   ticks: {
                     font: {
-                      family: 'var(--vscode-font-family)',
+                      family: "var(--vscode-font-family)",
                     },
                   },
                   grid: {},
@@ -695,7 +765,7 @@ function prepareChartData(insight: any): any {
       },
     };
   } catch (error) {
-    console.error('Error preparing chart data:', error);
+    console.error("Error preparing chart data:", error);
     return null;
   }
 }
