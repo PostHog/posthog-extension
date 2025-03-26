@@ -32,7 +32,14 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
       return Promise.resolve(this.getFileUsages(element.filePath));
     }
     if (element.usage?.warning) {
-      return Promise.resolve([this.createWarningItem(element.usage.warning)]);
+      // Split warnings by semicolon and create a warning item for each
+      const warnings = element.usage.warning
+        .split(";")
+        .map((w) => w.trim())
+        .filter((w) => w);
+      return Promise.resolve(
+        warnings.map((warning) => this.createWarningItem(warning))
+      );
     }
     return Promise.resolve([]);
   }
@@ -86,7 +93,11 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
         // Add warning badge if there's a warning
         if (usage.warning) {
           item.badge = new vscode.ThemeIcon("warning");
-          item.description = "⚠️ 1"; // Add warning count in the description
+          // Count the number of warnings by splitting on semicolons
+          const warningCount = usage.warning
+            .split(";")
+            .filter((w) => w.trim()).length;
+          item.description = `⚠️ ${warningCount}`; // Show actual count of warnings
         }
 
         item.tooltip = this.getCodePreview(filePath, usage.line);

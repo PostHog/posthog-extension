@@ -56,10 +56,14 @@ export class CodeAnalyzer {
       }
     }
 
-    // After analyzing, show warnings
-    this.showWarnings(usages);
+    // Deduplicate before showing warnings
+    const dedupedUsages = this.deduplicateUsages(usages);
 
-    return this.deduplicateUsages(usages);
+    // After analyzing, show warnings
+    this.showWarnings(dedupedUsages);
+
+    // Return the deduped usages directly - no need to split warnings
+    return dedupedUsages;
   }
 
   private deduplicateUsages(usages: PostHogUsage[]): PostHogUsage[] {
@@ -108,10 +112,10 @@ export class CodeAnalyzer {
     // Configuration patterns (any attribute setting)
     const configurationPatterns = [/posthog\.\w+\s*=/i];
 
-    // Event tracking patterns with dynamic name detection
+    // Event tracking patterns with dynamic name and property detection
     const eventTrackingPatterns = [
       {
-        pattern: /posthog\.capture\((.*?)\)/i,
+        pattern: /posthog\.capture\((.*?)(?:\)|$)/i,
         isDynamic: (match: string) => {
           // Check for f-strings, .format(), % formatting, string concatenation
           return (
@@ -121,6 +125,29 @@ export class CodeAnalyzer {
             /\s*\+\s*/.test(match) || // string concatenation
             /\$\{.*?\}/.test(match)
           ); // template literals
+        },
+        checkProperties: (match: string) => {
+          // Check for properties in Python dict format
+          const propertiesMatch = match.match(/properties\s*=\s*{([^}]*)}/);
+          if (propertiesMatch) {
+            const properties = propertiesMatch[1]
+              .split(",")
+              .filter((p) => p.trim());
+            if (properties.length > 25) {
+              return `Event is tracking ${properties.length} properties (recommended max: 25)`;
+            }
+          }
+          // Check for direct dict as third argument
+          const directPropsMatch = match.match(/,\s*{([^}]*)}/);
+          if (directPropsMatch) {
+            const properties = directPropsMatch[1]
+              .split(",")
+              .filter((p) => p.trim());
+            if (properties.length > 25) {
+              return `Event is tracking ${properties.length} properties (recommended max: 25)`;
+            }
+          }
+          return undefined;
         },
       },
     ];
@@ -170,26 +197,35 @@ export class CodeAnalyzer {
       configurationPatterns.forEach((pattern) =>
         addUsage(pattern, "configuration")
       );
-      eventTrackingPatterns.forEach(({ pattern, isDynamic }) => {
-        const match = line.match(pattern);
-        if (match) {
-          const fullMatch = match[0];
-          const usage: PostHogUsage = {
-            file: filePath,
-            line: lineNumber,
-            column: line.indexOf(fullMatch),
-            type: "event tracking",
-            context: fullMatch,
-          };
+      eventTrackingPatterns.forEach(
+        ({ pattern, isDynamic, checkProperties }) => {
+          const match = line.match(pattern);
+          if (match) {
+            const fullMatch = match[0];
+            const usage: PostHogUsage = {
+              file: filePath,
+              line: lineNumber,
+              column: line.indexOf(fullMatch),
+              type: "event tracking",
+              context: fullMatch,
+            };
 
-          if (isDynamic(fullMatch)) {
-            usage.warning =
-              "Capturing events with dynamic names is not recommended";
+            if (isDynamic(fullMatch)) {
+              usage.warning =
+                "Capturing events with dynamic names is not recommended";
+            }
+
+            const propertyWarning = checkProperties?.(fullMatch);
+            if (propertyWarning) {
+              usage.warning = usage.warning
+                ? `${usage.warning}; ${propertyWarning}`
+                : propertyWarning;
+            }
+
+            usages.push(usage);
           }
-
-          usages.push(usage);
         }
-      });
+      );
       featureFlagPatterns.forEach((pattern) =>
         addUsage(pattern, "feature flags")
       );
@@ -229,7 +265,6 @@ export class CodeAnalyzer {
     // Updated event tracking patterns with dynamic name detection
     const eventTrackingPatterns = [
       {
-        // Update pattern to catch both quoted strings and template literals
         pattern: /posthog(?:\?)?\.capture\(\s*(?:['"`].*?['"`])/i,
         isDynamic: (match: string) => {
           return (
@@ -249,6 +284,34 @@ export class CodeAnalyzer {
             return quoteType === "`" ? null : eventName;
           }
           return null;
+        },
+        checkProperties: (match: string, line: string, lineIndex: number) => {
+          // Look for properties in current and next few lines
+          let fullCall = line;
+          let curIndex = lineIndex;
+          let bracketCount =
+            (line.match(/{/g) || []).length - (line.match(/}/g) || []).length;
+
+          // Keep adding lines until we find the matching closing bracket
+          while (bracketCount > 0 && curIndex + 1 < lines.length) {
+            curIndex++;
+            const nextLine = lines[curIndex];
+            fullCall += "\n" + nextLine;
+            bracketCount += (nextLine.match(/{/g) || []).length;
+            bracketCount -= (nextLine.match(/}/g) || []).length;
+          }
+
+          // Now look for the properties object in the full call
+          const propertiesMatch = fullCall.match(/,\s*({[\s\S]*?})/);
+          if (propertiesMatch) {
+            const propertiesObj = propertiesMatch[1];
+            // Count properties by looking for property names followed by colons, handling multi-line
+            const properties = propertiesObj.match(/\w+\s*:/g) || [];
+            if (properties.length > 25) {
+              return `Event is tracking ${properties.length} properties, recommended max: 25`;
+            }
+          }
+          return undefined;
         },
       },
     ];
@@ -317,38 +380,47 @@ export class CodeAnalyzer {
       initializationPatterns.forEach((pattern) =>
         addUsage(pattern, "initialization")
       );
-      eventTrackingPatterns.forEach(({ pattern, isDynamic, getEventName }) => {
-        const match = line.match(pattern);
-        if (match) {
-          const fullMatch = match[0];
-          const eventName = getEventName(fullMatch);
-          const usage: PostHogUsage = {
-            file: filePath,
-            line: lineNumber,
-            column: line.indexOf(fullMatch),
-            type: "event tracking",
-            context: fullMatch,
-          };
-
-          if (isDynamic(fullMatch)) {
-            usage.warning =
-              "Capturing events with dynamic names is not recommended";
-          }
-
-          // Track event name and location
-          if (eventName) {
-            const locations = this.eventTrackingMap.get(eventName) || [];
-            locations.push({
+      eventTrackingPatterns.forEach(
+        ({ pattern, isDynamic, getEventName, checkProperties }) => {
+          const match = line.match(pattern);
+          if (match) {
+            const fullMatch = match[0];
+            const eventName = getEventName?.(fullMatch);
+            const usage: PostHogUsage = {
               file: filePath,
               line: lineNumber,
               column: line.indexOf(fullMatch),
-            });
-            this.eventTrackingMap.set(eventName, locations);
-          }
+              type: "event tracking",
+              context: fullMatch,
+            };
 
-          usages.push(usage);
+            if (isDynamic(fullMatch)) {
+              usage.warning =
+                "Capturing events with dynamic names is not recommended";
+            }
+
+            const propertyWarning = checkProperties?.(fullMatch, line, index);
+            if (propertyWarning) {
+              usage.warning = usage.warning
+                ? `${usage.warning}; ${propertyWarning}`
+                : propertyWarning;
+            }
+
+            // Track event name and location
+            if (eventName) {
+              const locations = this.eventTrackingMap.get(eventName) || [];
+              locations.push({
+                file: filePath,
+                line: lineNumber,
+                column: line.indexOf(fullMatch),
+              });
+              this.eventTrackingMap.set(eventName, locations);
+            }
+
+            usages.push(usage);
+          }
         }
-      });
+      );
       userIdentificationPatterns.forEach((pattern) =>
         addUsage(pattern, "identification")
       );
@@ -442,9 +514,14 @@ export class CodeAnalyzer {
             similarEvents.sort((a, b) => b.similarity - a.similarity);
             const mostSimilar = similarEvents[0];
             const similarFile = path.basename(mostSimilar.usage.file);
-            usage.warning = `Similar event "${mostSimilar.eventName}" (${(
-              mostSimilar.similarity * 100
-            ).toFixed(1)}% similar) is tracked in ${similarFile}`;
+            const similarWarning = `Similar event "${
+              mostSimilar.eventName
+            }" (${(mostSimilar.similarity * 100).toFixed(
+              1
+            )}% similar) is tracked in ${similarFile}`;
+            usage.warning = usage.warning
+              ? `${usage.warning}; ${similarWarning}`
+              : similarWarning;
           }
         }
       }
@@ -453,45 +530,53 @@ export class CodeAnalyzer {
     // Second pass: Create diagnostics for all warnings
     for (const usage of usages) {
       if (usage.warning) {
-        const diagnostic = new vscode.Diagnostic(
-          new vscode.Range(
-            usage.line - 1,
-            usage.column,
-            usage.line - 1,
-            usage.column + usage.context.length
-          ),
-          `PostHog: ${usage.warning}`,
-          vscode.DiagnosticSeverity.Warning
-        );
+        // Split multiple warnings and create a diagnostic for each
+        const warnings = usage.warning.split(";").map((w) => w.trim());
+        const diagnostics = diagnosticMap.get(usage.file) || [];
 
-        // Add related information only for similar event warnings
-        if (usage.warning.includes("already tracking")) {
-          const similarLocation = this.eventTrackingMap
-            .get(
-              usage.context.match(
-                /posthog(?:\?)?\.capture\(\s*['"](.+?)['"]/i
-              )?.[1] || ""
-            )
-            ?.find((loc) => loc.file !== usage.file);
+        for (const warning of warnings) {
+          if (!warning) continue; // Skip empty warnings
 
-          if (similarLocation) {
-            diagnostic.relatedInformation = [
-              new vscode.DiagnosticRelatedInformation(
-                new vscode.Location(
-                  vscode.Uri.file(similarLocation.file),
-                  new vscode.Position(
-                    similarLocation.line - 1,
-                    similarLocation.column
-                  )
+          const diagnostic = new vscode.Diagnostic(
+            new vscode.Range(
+              usage.line - 1,
+              usage.column,
+              usage.line - 1,
+              usage.column + usage.context.length
+            ),
+            `PostHog: ${warning}`,
+            vscode.DiagnosticSeverity.Warning
+          );
+
+          // Add related information only for similar event warnings
+          if (warning.includes("Similar event")) {
+            const similarLocation = this.eventTrackingMap
+              .get(
+                usage.context.match(
+                  /posthog(?:\?)?\.capture\(\s*['"](.+?)['"]/i
+                )?.[1] || ""
+              )
+              ?.find((loc) => loc.file !== usage.file);
+
+            if (similarLocation) {
+              diagnostic.relatedInformation = [
+                new vscode.DiagnosticRelatedInformation(
+                  new vscode.Location(
+                    vscode.Uri.file(similarLocation.file),
+                    new vscode.Position(
+                      similarLocation.line - 1,
+                      similarLocation.column
+                    )
+                  ),
+                  `Similar event tracked here`
                 ),
-                `Similar event tracked here`
-              ),
-            ];
+              ];
+            }
           }
+
+          diagnostics.push(diagnostic);
         }
 
-        const diagnostics = diagnosticMap.get(usage.file) || [];
-        diagnostics.push(diagnostic);
         diagnosticMap.set(usage.file, diagnostics);
       }
     }
