@@ -101,6 +101,13 @@ This extension interacts with the PostHog API using your personal API key. Your 
 
 ## Release Notes
 
+### 1.0.2
+
+- Added dark mode support for insight charts and visualizations
+- Improved theme compatibility and contrast for all UI elements
+- Enhanced chart colors and grid lines for better visibility
+- Updated VS Code engine compatibility to version 1.80.0+
+
 ### 1.0.0
 
 Initial release of the PostHog extension for VS Code:

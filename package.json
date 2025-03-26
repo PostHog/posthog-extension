@@ -105,7 +105,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
-    "@types/vscode": "^1.98.0",
+    "@types/vscode": "^1.80.0",
     "@typescript-eslint/eslint-plugin": "^8.25.0",
     "@typescript-eslint/parser": "^8.25.0",
     "@vscode/test-cli": "^0.0.10",
@@ -117,7 +117,7 @@
   },
   "displayName": "PostHog",
   "engines": {
-    "vscode": "^1.98.0"
+    "vscode": "^1.80.0"
   },
   "galleryBanner": {
     "color": "#f0f0f0",
@@ -155,5 +155,5 @@
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json"
   },
-  "version": "1.0.1"
+  "version": "1.0.2"
 }

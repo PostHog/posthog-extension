@@ -287,6 +287,10 @@ function getInsightDetailsWebview(insight: any): string {
     insight.name || insight.derived_name || `Insight ${insight.short_id}`;
   const description = insight.description || 'No description provided';
 
+  // Get theme type
+  const isDarkTheme =
+    vscode.window.activeColorTheme?.kind === vscode.ColorThemeKind.Dark;
+
   // Format created date
   const createdDate = insight.created_at
     ? new Date(insight.created_at).toLocaleDateString()
@@ -338,12 +342,33 @@ function getInsightDetailsWebview(insight: any): string {
         if (chartData) {
           chartScript = `
             <script>
+              // Theme information
+              const isDarkTheme = ${isDarkTheme};
+              const gridColor = isDarkTheme ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+              const textColor = isDarkTheme ? '#e0e0e0' : '#2d2d2d';
+
               // Wait for the DOM to be ready
               document.addEventListener('DOMContentLoaded', function() {
                 const ctx = document.getElementById('insightChart').getContext('2d');
                 
-                // Create the chart
-                const chart = new Chart(ctx, ${JSON.stringify(chartData)});
+                // Create the chart with theme-aware configuration
+                const chartConfig = ${JSON.stringify(chartData)};
+                
+                // Update chart colors based on theme
+                if (chartConfig.options?.plugins?.legend?.labels) {
+                  chartConfig.options.plugins.legend.labels.color = textColor;
+                }
+                if (chartConfig.options?.scales) {
+                  Object.values(chartConfig.options.scales).forEach(scale => {
+                    if (scale.ticks) scale.ticks.color = textColor;
+                    if (scale.grid) {
+                      scale.grid.color = gridColor;
+                      scale.grid.borderColor = gridColor;
+                    }
+                  });
+                }
+                
+                const chart = new Chart(ctx, chartConfig);
               });
             </script>
           `;
@@ -389,6 +414,7 @@ function getInsightDetailsWebview(insight: any): string {
           font-family: var(--vscode-font-family);
           padding: 20px;
           color: var(--vscode-foreground);
+          background-color: var(--vscode-editor-background);
         }
         h1, h2, h3 {
           color: var(--vscode-editor-foreground);
@@ -428,6 +454,7 @@ function getInsightDetailsWebview(insight: any): string {
           max-height: 400px;
           font-family: var(--vscode-editor-font-family);
           font-size: 12px;
+          color: var(--vscode-textPreformat-foreground);
         }
         .button {
           background-color: var(--vscode-button-background);
@@ -446,7 +473,9 @@ function getInsightDetailsWebview(insight: any): string {
           padding: 15px;
           background-color: var(--vscode-editor-background);
           border-radius: 4px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+          box-shadow: 0 2px 8px ${
+            isDarkTheme ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.15)'
+          };
         }
       </style>
     </head>
@@ -530,7 +559,7 @@ function prepareChartData(insight: any): any {
 
         datasets = insight.result.map((series: any, index: number) => {
           // Generate a deterministic color based on index
-          const hue = (index * 137) % 360; // Golden angle approximation for better distribution
+          const hue = (index * 137) % 360;
           const color = `hsl(${hue}, 70%, 60%)`;
 
           return {
@@ -568,9 +597,10 @@ function prepareChartData(insight: any): any {
           {
             label: 'Breakdown',
             data: seriesData,
-            backgroundColor: labels.map(
-              (_, i) => `hsl(${(i * 137) % 360}, 70%, 60%)`
-            ),
+            backgroundColor: labels.map((_, i) => {
+              const hue = (i * 137) % 360;
+              return `hsl(${hue}, 70%, 60%)`;
+            }),
             borderWidth: 1,
           },
         ];
@@ -603,6 +633,7 @@ function prepareChartData(insight: any): any {
       else {
         chartType = 'bar';
         labels = insight.result.map((_: any, i: number) => `Item ${i + 1}`);
+
         datasets = [
           {
             label: 'Values',
@@ -631,7 +662,9 @@ function prepareChartData(insight: any): any {
           legend: {
             position: 'top',
             labels: {
-              color: 'var(--vscode-foreground)',
+              font: {
+                family: 'var(--vscode-font-family)',
+              },
             },
           },
           tooltip: {
@@ -643,19 +676,19 @@ function prepareChartData(insight: any): any {
             ? {
                 x: {
                   ticks: {
-                    color: 'var(--vscode-foreground)',
+                    font: {
+                      family: 'var(--vscode-font-family)',
+                    },
                   },
-                  grid: {
-                    color: 'var(--vscode-panel-border)',
-                  },
+                  grid: {},
                 },
                 y: {
                   ticks: {
-                    color: 'var(--vscode-foreground)',
+                    font: {
+                      family: 'var(--vscode-font-family)',
+                    },
                   },
-                  grid: {
-                    color: 'var(--vscode-panel-border)',
-                  },
+                  grid: {},
                 },
               }
             : undefined,
