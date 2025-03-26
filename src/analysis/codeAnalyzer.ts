@@ -170,67 +170,64 @@ export class CodeAnalyzer {
       /^import\s+.*from\s+['"]@posthog\/react-native['"]/i,
     ];
 
-    // Initialization patterns
+    // Updated initialization patterns
     const initializationPatterns = [
       /usePostHog\(/i,
       /<PostHogProvider[^>]*>/i,
       /new\s+PostHog\(/i,
-      /posthog\.init\(/i,
-      /posthog\.initReactNativeNavigation\(/i,
+      /posthog(?:\?)?\.init\(/i,
+      /posthog(?:\?)?\.initReactNativeNavigation\(/i,
     ];
 
-    // Event tracking patterns
+    // Updated event tracking patterns
     const eventTrackingPatterns = [
-      /posthog\.capture\(/i,
-      /posthog\.screen\(/i,
-      /ph-label=["'][^"']+["']/i, // View labeling
+      /posthog(?:\?)?\.capture\(/i,
+      /posthog(?:\?)?\.screen\(/i,
+      /ph-label=["'][^"']+["']/i,
     ];
 
-    // Event blocking patterns
-    const eventBlockingPatterns = [/ph-no-capture/i];
-
-    // User identification patterns
+    // Updated user identification patterns
     const userIdentificationPatterns = [
-      /posthog\.identify\(/i,
-      /posthog\.alias\(/i,
-      /posthog\.register\(/i,
-      /posthog\.unregister\(/i,
-      /posthog\.reset\(/i,
+      /posthog(?:\?)?\.identify\(/i,
+      /posthog(?:\?)?\.alias\(/i,
+      /posthog(?:\?)?\.register\(/i,
+      /posthog(?:\?)?\.unregister\(/i,
+      /posthog(?:\?)?\.reset\(/i,
     ];
 
-    // Data capture opt-in/out patterns
+    // Updated opt-in/out patterns
     const optInOutPatterns = [
-      /posthog\.opt_out_capturing\(/i,
-      /posthog\.opt_in_capturing\(/i,
-      /posthog\.has_opted_out_capturing\(/i,
-      /posthog\.optedOut\b/i,
-      /posthog\.optIn\(/i,
-      /posthog\.optOut\(/i,
+      /posthog(?:\?)?\.opt_out_capturing\(/i,
+      /posthog(?:\?)?\.opt_in_capturing\(/i,
+      /posthog(?:\?)?\.has_opted_out_capturing\(/i,
+      /posthog(?:\?)?\.optedOut\b/i,
+      /posthog(?:\?)?\.optIn\(/i,
+      /posthog(?:\?)?\.optOut\(/i,
     ];
 
-    // Event queue management
-    const queueManagementPatterns = [/posthog\.flush\(/i];
+    // Updated queue management patterns
+    const queueManagementPatterns = [/posthog(?:\?)?\.flush\(/i];
 
-    // Feature flag patterns
+    // Updated feature flag patterns
     const featureFlagPatterns = [
       /useFeatureFlag\(/i,
-      /posthog\.isFeatureEnabled\(/i,
-      /posthog\.getFeatureFlag\(/i,
-      /posthog\.getFeatureFlagPayload\(/i,
-      /posthog\.reloadFeatureFlagsAsync\(/i,
-      /posthog\.reloadFeatureFlags\(/i,
+      /posthog(?:\?)?\.isFeatureEnabled\(/i,
+      /posthog(?:\?)?\.getFeatureFlag\(/i,
+      /posthog(?:\?)?\.getFeatureFlagPayload\(/i,
+      /posthog(?:\?)?\.reloadFeatureFlagsAsync\(/i,
+      /posthog(?:\?)?\.reloadFeatureFlags\(/i,
     ];
 
-    // Feature flag property management
+    // Updated flag property patterns
     const flagPropertyPatterns = [
-      /posthog\.setPersonPropertiesForFlags\(/i,
-      /posthog\.resetPersonPropertiesForFlags\(/i,
-      /posthog\.setGroupPropertiesForFlags\(/i,
-      /posthog\.resetGroupPropertiesForFlags\(/i,
+      /posthog(?:\?)?\.setPersonPropertiesForFlags\(/i,
+      /posthog(?:\?)?\.resetPersonPropertiesForFlags\(/i,
+      /posthog(?:\?)?\.setGroupPropertiesForFlags\(/i,
+      /posthog(?:\?)?\.resetGroupPropertiesForFlags\(/i,
     ];
 
-    // Group analytics patterns
-    const groupPatterns = [/posthog\.group\(/i];
+    // Updated group patterns
+    const groupPatterns = [/posthog(?:\?)?\.group\(/i];
 
     lines.forEach((line, index) => {
       const lineNumber = index + 1;
@@ -255,9 +252,6 @@ export class CodeAnalyzer {
       );
       eventTrackingPatterns.forEach((pattern) =>
         addUsage(pattern, "event tracking")
-      );
-      eventBlockingPatterns.forEach((pattern) =>
-        addUsage(pattern, "configuration")
       );
       userIdentificationPatterns.forEach((pattern) =>
         addUsage(pattern, "identification")
