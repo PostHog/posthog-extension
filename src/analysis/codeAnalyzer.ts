@@ -20,12 +20,19 @@ export interface PostHogUsage {
   warning?: string;
 }
 
+const DYNAMIC_EVENT_WARNING =
+  "Capturing events with dynamic names is not recommended";
+const REVERSE_PROXY_WARNING =
+  "You are using PostHog's host directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy";
+
 export class CodeAnalyzer {
   private diagnosticCollection: vscode.DiagnosticCollection;
   private eventTrackingMap: Map<
     string,
     { file: string; line: number; column: number }[]
   >;
+  private foundPosthogHost: boolean = false;
+  private foundAnyHost: boolean = false;
 
   constructor() {
     // Create a diagnostic collection for PostHog warnings
@@ -35,8 +42,10 @@ export class CodeAnalyzer {
   }
 
   async analyzeWorkspace(): Promise<PostHogUsage[]> {
-    // Clear previous diagnostics
+    // Clear previous diagnostics and reset host tracking
     this.diagnosticCollection.clear();
+    this.foundPosthogHost = false;
+    this.foundAnyHost = false;
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -45,6 +54,31 @@ export class CodeAnalyzer {
 
     const usages: PostHogUsage[] = [];
 
+    // First pass: scan for host settings
+    for (const folder of workspaceFolders) {
+      const files = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(folder, "**/*.{py,ts,tsx}"),
+        "**/node_modules/**"
+      );
+
+      for (const file of files) {
+        const content = await vscode.workspace.fs.readFile(file);
+        const text = new TextDecoder().decode(content);
+
+        this.checkHostSettings(text);
+
+        // If we found a posthog.com host, we can stop searching as we'll need to show warnings
+        if (this.foundPosthogHost) {
+          break;
+        }
+      }
+
+      if (this.foundPosthogHost) {
+        break;
+      }
+    }
+
+    // Second pass: normal analysis
     for (const folder of workspaceFolders) {
       const files = await vscode.workspace.findFiles(
         new vscode.RelativePattern(folder, "**/*.{py,ts,tsx}"),
@@ -104,41 +138,18 @@ export class CodeAnalyzer {
     // Import patterns
     const importPatterns = [/^import\s+posthog/i, /^from\s+posthog\s+import/i];
 
-    // Helper function to check for PostHog host patterns
-    const hasPostHogHost = (line: string) => {
-      const hostPatterns = [
-        /host\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-        /api_host\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-        /ui_host\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-        /\w*host\w*\s*=\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-      ];
-      return hostPatterns.some((pattern) => pattern.test(line));
-    };
-
-    // Updated initialization patterns with host checking
+    // Add initialization patterns back
     const initializationPatterns = [
       {
         pattern: /\w+\s*=\s*PostHog\((.*?)(?:\)|$)/i,
-        checkHost: (match: string, fullLine: string) => {
-          // Check if any host is explicitly set
-          const hasExplicitHost = hasPostHogHost(fullLine);
-          // Check if no host is set at all (which means it defaults to posthog.com)
-          const hasNoHost =
-            !fullLine.includes("host=") &&
-            !fullLine.includes("api_host=") &&
-            !fullLine.includes("ui_host=");
-          return hasExplicitHost || hasNoHost;
+        checkHost: () => {
+          return this.foundPosthogHost || !this.foundAnyHost;
         },
       },
       {
         pattern: /\w+\s*=\s*posthog\.PostHog\((.*?)(?:\)|$)/i,
-        checkHost: (match: string, fullLine: string) => {
-          const hasExplicitHost = hasPostHogHost(fullLine);
-          const hasNoHost =
-            !fullLine.includes("host=") &&
-            !fullLine.includes("api_host=") &&
-            !fullLine.includes("ui_host=");
-          return hasExplicitHost || hasNoHost;
+        checkHost: () => {
+          return this.foundPosthogHost || !this.foundAnyHost;
         },
       },
     ];
@@ -200,12 +211,6 @@ export class CodeAnalyzer {
     // Error tracking patterns
     const errorTrackingPatterns = [/posthog\.capture_exception\(/i];
 
-    // Integration patterns
-    const integrationPatterns = [
-      /PostHogIntegration\(\)/i,
-      /POSTHOG_DJANGO\s*=/i,
-    ];
-
     // Updated host setting pattern to include all variants
     const hostSettingPattern = {
       pattern:
@@ -230,8 +235,10 @@ export class CodeAnalyzer {
         }
       };
 
-      // Check each pattern type with its corresponding functionality type
+      // Check each pattern type
       importPatterns.forEach((pattern) => addUsage(pattern, "import"));
+
+      // Add initialization pattern checks back
       initializationPatterns.forEach(({ pattern, checkHost }) => {
         const match = line.match(pattern);
         if (match) {
@@ -243,9 +250,8 @@ export class CodeAnalyzer {
             context: match[0],
           };
 
-          if (checkHost(match[0], line)) {
-            usage.warning =
-              "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy";
+          if (checkHost()) {
+            usage.warning = REVERSE_PROXY_WARNING;
           }
 
           usages.push(usage);
@@ -268,8 +274,7 @@ export class CodeAnalyzer {
             };
 
             if (isDynamic(fullMatch)) {
-              usage.warning =
-                "Capturing events with dynamic names is not recommended";
+              usage.warning = DYNAMIC_EVENT_WARNING;
             }
 
             const propertyWarning = checkProperties?.(fullMatch);
@@ -297,8 +302,7 @@ export class CodeAnalyzer {
           column: line.indexOf(hostMatch[0]),
           type: hostSettingPattern.type,
           context: hostMatch[0],
-          warning:
-            "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy",
+          warning: REVERSE_PROXY_WARNING,
         });
       }
     });
@@ -318,17 +322,6 @@ export class CodeAnalyzer {
       /^import\s+.*from\s+['"]@posthog\/react-native['"]/i,
     ];
 
-    // Helper function to check for PostHog host patterns
-    const hasPostHogHost = (line: string) => {
-      const hostPatterns = [
-        /host\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-        /api_host\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-        /ui_host\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-        /\w*host\w*\s*[=:]\s*['"].*?(?:posthog\.com|i\.posthog\.com)/i,
-      ];
-      return hostPatterns.some((pattern) => pattern.test(line));
-    };
-
     // Remove usePostHog from initialization patterns and create new hook patterns
     const hookPatterns = [
       {
@@ -340,38 +333,20 @@ export class CodeAnalyzer {
     const initializationPatterns = [
       {
         pattern: /<PostHogProvider[^>]*>/i,
-        checkHost: (match: string, fullLine: string) => {
-          const hasExplicitHost = hasPostHogHost(fullLine);
-          const hasNoHost =
-            !fullLine.includes("host=") &&
-            !fullLine.includes("host:") &&
-            !fullLine.includes("api_host") &&
-            !fullLine.includes("ui_host");
-          return hasExplicitHost || hasNoHost;
+        checkHost: () => {
+          return this.foundPosthogHost || !this.foundAnyHost;
         },
       },
       {
         pattern: /new\s+PostHog\((.*?)(?:\)|$)/i,
-        checkHost: (match: string, fullLine: string) => {
-          const hasExplicitHost = hasPostHogHost(fullLine);
-          const hasNoHost =
-            !fullLine.includes("host:") &&
-            !fullLine.includes("host=") &&
-            !fullLine.includes("api_host") &&
-            !fullLine.includes("ui_host");
-          return hasExplicitHost || hasNoHost;
+        checkHost: () => {
+          return this.foundPosthogHost || !this.foundAnyHost;
         },
       },
       {
         pattern: /posthog(?:\?)?\.init\((.*?)(?:\)|$)/i,
-        checkHost: (match: string, fullLine: string) => {
-          const hasExplicitHost = hasPostHogHost(fullLine);
-          const hasNoHost =
-            !fullLine.includes("host:") &&
-            !fullLine.includes("host=") &&
-            !fullLine.includes("api_host") &&
-            !fullLine.includes("ui_host");
-          return hasExplicitHost || hasNoHost;
+        checkHost: () => {
+          return this.foundPosthogHost || !this.foundAnyHost;
         },
       },
     ];
@@ -509,9 +484,8 @@ export class CodeAnalyzer {
             context: match[0],
           };
 
-          if (checkHost(match[0], line)) {
-            usage.warning =
-              "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy";
+          if (checkHost()) {
+            usage.warning = REVERSE_PROXY_WARNING;
           }
 
           usages.push(usage);
@@ -532,8 +506,7 @@ export class CodeAnalyzer {
             };
 
             if (isDynamic(fullMatch)) {
-              usage.warning =
-                "Capturing events with dynamic names is not recommended";
+              usage.warning = DYNAMIC_EVENT_WARNING;
             }
 
             const propertyWarning = checkProperties?.(fullMatch, line, index);
@@ -582,8 +555,7 @@ export class CodeAnalyzer {
           column: line.indexOf(hostMatch[0]),
           type: hostSettingPattern.type,
           context: hostMatch[0],
-          warning:
-            "You are calling PostHog directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy",
+          warning: REVERSE_PROXY_WARNING,
         });
       }
 
@@ -689,7 +661,9 @@ export class CodeAnalyzer {
         const diagnostics = diagnosticMap.get(usage.file) || [];
 
         for (const warning of warnings) {
-          if (!warning) continue; // Skip empty warnings
+          if (!warning) {
+            continue;
+          } // Skip empty warnings
 
           const diagnostic = new vscode.Diagnostic(
             new vscode.Range(
@@ -738,6 +712,36 @@ export class CodeAnalyzer {
     // Set diagnostics for each file
     for (const [file, diagnostics] of diagnosticMap.entries()) {
       this.diagnosticCollection.set(vscode.Uri.file(file), diagnostics);
+    }
+  }
+
+  private checkHostSettings(text: string): void {
+    // Combined pattern for both Python and TypeScript syntax, including variable assignments
+    const hostPatterns = [
+      // String literal assignments
+      /(?:host|api_host|ui_host)\s*[=:]\s*['"]([^'"]*)['"]/i,
+      // Variable/constant assignments
+      /(?:host|api_host|ui_host)\s*[=:]\s*([A-Z_][A-Z0-9_]*|\w+(?:\.\w+)*)\b/i,
+    ];
+
+    for (const pattern of hostPatterns) {
+      const matches = text.matchAll(new RegExp(pattern, "g"));
+      for (const match of matches) {
+        this.foundAnyHost = true;
+        // If it's a string literal and contains posthog.com
+        if (
+          match[1] &&
+          typeof match[1] === "string" &&
+          match[1].includes("posthog.com")
+        ) {
+          this.foundPosthogHost = true;
+          return;
+        }
+        // If it's a variable assignment, we consider it a custom host
+        if (match[1] && !match[1].match(/['"`]/)) {
+          return; // Found a variable assignment, treat it as a custom host
+        }
+      }
     }
   }
 }

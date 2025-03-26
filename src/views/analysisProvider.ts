@@ -32,13 +32,12 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
       return Promise.resolve(this.getFileUsages(element.filePath));
     }
     if (element.usage?.warning) {
-      // Split warnings by semicolon and create a warning item for each
       const warnings = element.usage.warning
         .split(";")
         .map((w) => w.trim())
         .filter((w) => w);
       return Promise.resolve(
-        warnings.map((warning) => this.createWarningItem(warning))
+        warnings.map((warning) => this.createWarningItem(warning, element))
       );
     }
     return Promise.resolve([]);
@@ -110,29 +109,37 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
       });
   }
 
-  private createWarningItem(warning: string): AnalysisItem {
+  private createWarningItem(
+    warning: string,
+    parent?: AnalysisItem
+  ): AnalysisItem {
     const item = new AnalysisItem(
       warning,
       vscode.TreeItemCollapsibleState.None,
       false,
-      "",
-      undefined
+      parent?.filePath || "",
+      undefined,
+      parent
     );
     item.iconPath = new vscode.ThemeIcon("warning");
     item.contextValue = "warning";
-
-    // Add yellow highlighting
     item.tooltip = warning;
-    item.description = ""; // Ensure no additional text appears after the label
-
-    // Use VS Code's built-in warning colors
-    item.resourceUri = vscode.Uri.parse("warning"); // This is a hack to get the warning color
+    item.description = "";
+    item.resourceUri = vscode.Uri.parse("warning");
     item.decorationProvider = true;
 
-    // Set label formatting with yellow theme color
+    // Add the parent usage information to the warning item
+    if (item.parent?.usage) {
+      item.command = {
+        command: "posthog.openFileAtLocation",
+        title: "Open File",
+        arguments: [item.parent.usage],
+      };
+    }
+
     item.label = {
       label: warning,
-      highlights: [[0, warning.length]], // Highlight entire text
+      highlights: [[0, warning.length]],
     };
 
     return item;
@@ -163,11 +170,12 @@ export class AnalysisProvider implements vscode.TreeDataProvider<AnalysisItem> {
 
 class AnalysisItem extends vscode.TreeItem {
   constructor(
-    public readonly label: string | vscode.TreeItemLabel,
+    public label: string | vscode.TreeItemLabel,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
     public readonly isFile: boolean,
     public readonly filePath: string,
-    public readonly usage?: PostHogUsage
+    public readonly usage?: PostHogUsage,
+    public readonly parent?: AnalysisItem
   ) {
     super(label, collapsibleState);
   }
