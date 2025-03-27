@@ -24,6 +24,9 @@ const DYNAMIC_EVENT_WARNING =
   "Capturing events with dynamic names is not recommended";
 const REVERSE_PROXY_WARNING =
   "You are using PostHog's host directly, which is not recommended. You should use a reverse proxy to call PostHog, see: https://posthog.com/docs/advanced/proxy";
+const MAX_PROPERTIES_WARNING =
+  "Event is tracking too many properties, recommended max: 25";
+const MAX_PROPERTIES = 25;
 
 export class CodeAnalyzer {
   private diagnosticCollection: vscode.DiagnosticCollection;
@@ -178,8 +181,8 @@ export class CodeAnalyzer {
             const properties = propertiesMatch[1]
               .split(",")
               .filter((p) => p.trim());
-            if (properties.length > 25) {
-              return `Event is tracking ${properties.length} properties (recommended max: 25)`;
+            if (properties.length > MAX_PROPERTIES) {
+              return MAX_PROPERTIES_WARNING;
             }
           }
           // Check for direct dict as third argument
@@ -188,8 +191,8 @@ export class CodeAnalyzer {
             const properties = directPropsMatch[1]
               .split(",")
               .filter((p) => p.trim());
-            if (properties.length > 25) {
-              return `Event is tracking ${properties.length} properties (recommended max: 25)`;
+            if (properties.length > MAX_PROPERTIES) {
+              return MAX_PROPERTIES_WARNING;
             }
           }
           return undefined;
@@ -396,8 +399,8 @@ export class CodeAnalyzer {
             const propertiesObj = propertiesMatch[1];
             // Count properties by looking for property names followed by colons, handling multi-line
             const properties = propertiesObj.match(/\w+\s*:/g) || [];
-            if (properties.length > 25) {
-              return `Event is tracking ${properties.length} properties, recommended max: 25`;
+            if (properties.length > MAX_PROPERTIES) {
+              return MAX_PROPERTIES_WARNING
             }
           }
           return undefined;
