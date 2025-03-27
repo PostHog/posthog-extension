@@ -169,5 +169,5 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "rebuild": "node-gyp rebuild"
   },
-  "version": "1.0.2"
+  "version": "1.0.3"
 }

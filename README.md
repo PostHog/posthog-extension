@@ -101,6 +101,11 @@ This extension interacts with the PostHog API using your personal API key. Your 
 
 ## Release Notes
 
+### 1.0.3
+
+- Added SDK Usage Analysis mode
+- Added support for 4 usage warnings
+
 ### 1.0.2
 
 - Added dark mode support for insight charts and visualizations
