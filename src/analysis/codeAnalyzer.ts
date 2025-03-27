@@ -400,7 +400,7 @@ export class CodeAnalyzer {
             // Count properties by looking for property names followed by colons, handling multi-line
             const properties = propertiesObj.match(/\w+\s*:/g) || [];
             if (properties.length > MAX_PROPERTIES) {
-              return MAX_PROPERTIES_WARNING
+              return MAX_PROPERTIES_WARNING;
             }
           }
           return undefined;

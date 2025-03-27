@@ -21,7 +21,7 @@ export class ProjectsProvider
   private projects: PostHogProject[] = [];
 
   constructor(private context: vscode.ExtensionContext) {
-    this.client = new PostHogClient();
+    this.client = new PostHogClient(context);
   }
 
   refresh(): void {
@@ -36,9 +36,7 @@ export class ProjectsProvider
     if (!element) {
       // Root level - fetch projects
       try {
-        const hasApiKey = !!vscode.workspace
-          .getConfiguration("posthog")
-          .get("apiKey");
+        const hasApiKey = !!(await this.client.getStoredApiKey());
 
         if (!hasApiKey) {
           return [new SetupRequiredItem()];

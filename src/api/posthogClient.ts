@@ -10,16 +10,20 @@ import {
 
 export class PostHogClient {
   private api!: AxiosInstance; // Using definite assignment assertion
-  private apiKey: string;
-  private apiHost: string;
+  private apiKey!: string; // Use definite assignment assertion
+  private apiHost!: string;
+  private context: vscode.ExtensionContext;
 
-  constructor() {
-    this.apiKey =
-      vscode.workspace.getConfiguration("posthog").get("apiKey") || "";
+  constructor(context: vscode.ExtensionContext) {
+    this.context = context;
+    this.initializeFromSecrets();
+  }
+
+  async initializeFromSecrets() {
+    this.apiKey = (await this.getStoredApiKey()) || "";
     this.apiHost =
       vscode.workspace.getConfiguration("posthog").get("apiHost") ||
       "https://us.posthog.com";
-
     this.initializeApi();
   }
 
@@ -52,14 +56,23 @@ export class PostHogClient {
   /**
    * Update the API key
    */
-  updateApiKey(apiKey: string) {
+  async updateApiKey(apiKey: string) {
     this.apiKey = apiKey;
     this.initializeApi();
 
-    // Update config
-    return vscode.workspace
-      .getConfiguration("posthog")
-      .update("apiKey", apiKey, true);
+    // Store in secret storage instead of workspace config
+    const secretStorage = await this.getSecretStorage();
+    await secretStorage.store("posthog-api-key", apiKey);
+  }
+
+  private async getSecretStorage(): Promise<vscode.SecretStorage> {
+    // Get the extension context's secret storage
+    return this.context.secrets;
+  }
+
+  async getStoredApiKey(): Promise<string | undefined> {
+    const secretStorage = await this.getSecretStorage();
+    return await secretStorage.get("posthog-api-key");
   }
 
   /**
