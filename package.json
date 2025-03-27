@@ -57,7 +57,7 @@
       },
       {
         "command": "posthog.analyzeCode",
-        "title": "PostHog: Analyze Code for SDK Usage"
+        "title": "PostHog: Analyze Codebase"
       },
       {
         "command": "posthog.openFileAtLocation",
@@ -90,12 +90,8 @@
           "name": "Insights"
         },
         {
-          "id": "posthogRecordings",
-          "name": "Session Recordings"
-        },
-        {
           "id": "posthogAnalysis",
-          "name": "SDK Usage Analysis"
+          "name": "Usage Analysis"
         }
       ]
     },

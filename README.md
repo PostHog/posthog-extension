@@ -106,6 +106,7 @@ This extension interacts with the PostHog API using your personal API key. Your 
 - Added SDK Usage Analysis mode
 - Added support for 4 usage warnings
 - Updated API key management to use VSCode Secret Storage
+- Removed recordings view
 
 ### 1.0.2
 

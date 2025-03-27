@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { PostHogClient } from "./api/posthogClient";
 import { ProjectsProvider } from "./views/projectsProvider";
 import { InsightsProvider } from "./views/insightsProvider";
-import { RecordingsProvider } from "./views/recordingsProvider";
+// import { RecordingsProvider } from "./views/recordingsProvider";
 import { AnalysisProvider } from "./views/analysisProvider";
 import { CodeAnalyzer, PostHogUsage } from "./analysis/codeAnalyzer";
 
@@ -38,7 +38,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize tree view providers
   const projectsProvider = new ProjectsProvider(context);
   const insightsProvider = new InsightsProvider(context);
-  const recordingsProvider = new RecordingsProvider(context);
+  // const recordingsProvider = new RecordingsProvider(context);
   const analysisProvider = new AnalysisProvider(context);
 
   // Register tree views
@@ -52,10 +52,10 @@ export async function activate(context: vscode.ExtensionContext) {
     showCollapseAll: true,
   });
 
-  const recordingsView = vscode.window.createTreeView("posthogRecordings", {
-    treeDataProvider: recordingsProvider,
-    showCollapseAll: true,
-  });
+  // const recordingsView = vscode.window.createTreeView("posthogRecordings", {
+  //   treeDataProvider: recordingsProvider,
+  //   showCollapseAll: true,
+  // });
 
   const analysisView = vscode.window.createTreeView("posthogAnalysis", {
     treeDataProvider: analysisProvider,
@@ -93,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Tree views
     projectsView,
     insightsView,
-    recordingsView,
+    // recordingsView,
     analysisView,
 
     // Set API Key command
@@ -234,7 +234,7 @@ export async function activate(context: vscode.ExtensionContext) {
       "posthog.listInsights",
       async (projectId: number, projectName: string) => {
         insightsProvider.setProject(projectId, projectName);
-        recordingsProvider.setProject(projectId, projectName);
+        // recordingsProvider.setProject(projectId, projectName);
         await vscode.commands.executeCommand("posthogInsights.focus");
         vscode.window.showInformationMessage(
           `Viewing insights for project: ${projectName}`
@@ -320,16 +320,16 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
 
     // View Session Recordings command
-    vscode.commands.registerCommand(
-      "posthog.viewSessionRecordings",
-      async (projectId: number, projectName: string) => {
-        recordingsProvider.setProject(projectId, projectName);
-        await vscode.commands.executeCommand("posthogRecordings.focus");
-        vscode.window.showInformationMessage(
-          `Viewing session recordings for project: ${projectName}`
-        );
-      }
-    ),
+    // vscode.commands.registerCommand(
+    //   "posthog.viewSessionRecordings",
+    //   async (projectId: number, projectName: string) => {
+    //     recordingsProvider.setProject(projectId, projectName);
+    //     await vscode.commands.executeCommand("posthogRecordings.focus");
+    //     vscode.window.showInformationMessage(
+    //       `Viewing session recordings for project: ${projectName}`
+    //     );
+    //   }
+    // ),
 
     // Code analysis commands
     vscode.commands.registerCommand("posthog.analyzeCode", async () => {

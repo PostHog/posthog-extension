@@ -30,7 +30,7 @@ export class RecordingsProvider
   private recordings: PostHogSessionRecording[] = [];
 
   constructor(private context: vscode.ExtensionContext) {
-    this.client = new PostHogClient();
+    this.client = new PostHogClient(context);
   }
 
   refresh(): void {

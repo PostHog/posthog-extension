@@ -28,7 +28,7 @@ export class InsightsProvider
   private insights: PostHogInsight[] = [];
 
   constructor(private context: vscode.ExtensionContext) {
-    this.client = new PostHogClient();
+    this.client = new PostHogClient(context);
   }
 
   refresh(): void {

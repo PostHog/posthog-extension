@@ -10,6 +10,9 @@ All notable changes to the "posthog-vscode" extension will be documented in this
 - Added support for 4 usage warnings
 - Updated API key management to use VSCode Secret Storage
 
+### Removed
+- Recordings view
+
 ## [1.0.2] - 2025-03-26
 
 ### Added
