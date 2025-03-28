@@ -11,9 +11,22 @@
   "categories": [
     "Other",
     "Visualization",
-    "Debuggers"
+    "Debuggers",
+    "Themes"
   ],
   "contributes": {
+    "themes": [
+      {
+        "label": "PostHog Light",
+        "uiTheme": "vs",
+        "path": "./themes/posthog-light-color-theme.json"
+      },
+      {
+        "label": "PostHog Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/posthog-dark-color-theme.json"
+      }
+    ],
     "commands": [
       {
         "command": "posthog.setApiKey",
@@ -155,5 +168,5 @@
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json"
   },
-  "version": "1.0.2"
+  "version": "1.0.3"
 }

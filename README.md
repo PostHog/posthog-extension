@@ -11,6 +11,7 @@ Access PostHog insights, projects, and features directly from VS Code. This exte
 - **Data Visualization**: View beautiful charts of your insight data using Chart.js
 - **Multiple Environments**: Connect to US Cloud, EU Cloud, or self-hosted PostHog instances
 - **Debug Tools**: Test your PostHog connection with detailed diagnostics
+- **Themes**: Light and dark editor themes based on the familiar PostHog color
 
 ## Getting Started
 
@@ -98,27 +99,6 @@ This extension is licensed under the MIT License.
 ## Privacy
 
 This extension interacts with the PostHog API using your personal API key. Your API key is stored securely in VS Code's configuration storage. No other data is collected by this extension.
-
-## Release Notes
-
-### 1.0.2
-
-- Added dark mode support for insight charts and visualizations
-- Improved theme compatibility and contrast for all UI elements
-- Enhanced chart colors and grid lines for better visibility
-- Updated VS Code engine compatibility to version 1.80.0+
-
-### 1.0.0
-
-Initial release of the PostHog extension for VS Code:
-
-- View all your PostHog projects
-- Browse and visualize insights with Chart.js
-- View session recordings
-- Create annotations
-- Connect to US or EU cloud instances
-- Debug API connections
-- Support for different chart types based on insight data
 
 ---
 
