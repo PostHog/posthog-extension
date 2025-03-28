@@ -1,18 +1,10 @@
 # Change Log
 
-All notable changes to the "posthog-vscode" extension will be documented in this file.
-
 ## [1.1.0] - 2025-03-28
 
 ### Added
 
 - Themes: PostHog Light and PostHog Dark
-
-### Changed
-
-- Improved visual consistency by making sidebar, activity bar, and window title bar share the same color
-- Enhanced contrast in editor areas to match PostHog web application UI
-- Fixed theme registration with proper VS Code theme type identifiers
 
 ## [1.0.2] - 2025-03-26
 
