@@ -2,7 +2,7 @@
 
 All notable changes to the "posthog-vscode" extension will be documented in this file.
 
-## [1.0.3] - 2025-03-29
+## [1.1.0] - 2025-03-28
 
 ### Added
 
